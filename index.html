@@ -376,6 +376,59 @@
 
         .add-tier-btn:hover { border-color: #555; color: var(--text); background: var(--surface2); }
 
+        /* ── Volume control ── */
+        .vol-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+
+        .vol-icon {
+            font-size: 14px;
+            color: var(--text-muted);
+            cursor: pointer;
+            user-select: none;
+            width: 20px;
+            text-align: center;
+        }
+
+        .vol-icon:hover { color: var(--text); }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 72px;
+            height: 3px;
+            border-radius: 2px;
+            background: var(--border);
+            outline: none;
+            cursor: pointer;
+            border: none;
+            padding: 0;
+            flex: unset;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 13px;
+            height: 13px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover { background: var(--text); }
+        input[type="range"]::-moz-range-thumb {
+            width: 13px;
+            height: 13px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            border: none;
+            cursor: pointer;
+        }
+
         /* ── Video Modal ── */
         .video-modal-overlay {
             position: fixed;
@@ -463,6 +516,10 @@
             <button class="btn primary" id="load-btn" onclick="loadPlaylist()">Load</button>
             <button class="btn" onclick="openSettings()">⚙ Tiers</button>
             <button class="btn" id="export-btn" onclick="exportImage()">Export PNG</button>
+            <div class="vol-group">
+                <span class="vol-icon" id="vol-icon" onclick="togglePreviewMute()">🔉</span>
+                <input type="range" id="vol-slider" min="0" max="100" value="30" oninput="setPreviewVolume(this.value)" />
+            </div>
             <span id="status" class="status"></span>
         </div>
 
@@ -689,7 +746,7 @@
                 previewTimeout = setTimeout(() => {
                     if (!ytPlayer?.loadVideoById) return;
                     ytPlayer.loadVideoById({ videoId: video.videoId, startSeconds: getPreviewStart(video.duration) });
-                    try { ytPlayer.setVolume(50); } catch {}
+                    try { ytPlayer.setVolume(getPreviewVolume()); } catch {}
                     card.classList.add('previewing');
                 }, 450);
             });
@@ -922,6 +979,31 @@
         document.addEventListener('keydown', e => {
             if (e.key === 'Escape') closeVideoModal();
         });
+
+        // ── Preview volume ──
+        function getPreviewVolume() {
+            return parseInt(document.getElementById('vol-slider').value);
+        }
+
+        function setPreviewVolume(val) {
+            const v = parseInt(val);
+            try { if (ytPlayer?.setVolume) ytPlayer.setVolume(v); } catch {}
+            const icon = document.getElementById('vol-icon');
+            icon.textContent = v === 0 ? '🔇' : v < 50 ? '🔉' : '🔊';
+        }
+
+        function togglePreviewMute() {
+            const slider = document.getElementById('vol-slider');
+            if (parseInt(slider.value) === 0) {
+                const prev = parseInt(slider.dataset.prev || '30');
+                slider.value = prev;
+                setPreviewVolume(prev);
+            } else {
+                slider.dataset.prev = slider.value;
+                slider.value = 0;
+                setPreviewVolume(0);
+            }
+        }
 
         // ── Input helpers ──
         function onInputChange() {
