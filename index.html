@@ -503,6 +503,132 @@
             top: -9999px;
             pointer-events: none;
         }
+
+        /* ── Mode Toggle ── */
+        .mode-toggle {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            flex-shrink: 0;
+        }
+
+        .mode-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-weight: 600;
+            user-select: none;
+            transition: color 0.15s;
+        }
+
+        .mode-label.active { color: var(--text); }
+
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 38px;
+            height: 20px;
+            flex-shrink: 0;
+        }
+
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+
+        .toggle-knob {
+            position: absolute;
+            inset: 0;
+            background: var(--border);
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .toggle-knob::after {
+            content: '';
+            position: absolute;
+            left: 3px;
+            top: 3px;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            transition: transform 0.2s, background 0.2s;
+        }
+
+        .toggle-switch input:checked + .toggle-knob { background: var(--accent); }
+        .toggle-switch input:checked + .toggle-knob::after { transform: translateX(18px); background: #fff; }
+
+        /* ── Session View ── */
+        #session-view {
+            margin-top: 16px;
+        }
+
+        .session-player-wrap {
+            position: relative;
+            aspect-ratio: 16 / 9;
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            max-width: 720px;
+            margin: 0 auto 14px;
+            border: 1px solid var(--border);
+        }
+
+        .session-player-wrap iframe {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        .session-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text);
+            text-align: center;
+            max-width: 720px;
+            margin: 0 auto 4px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .session-counter {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-align: center;
+            margin-bottom: 14px;
+        }
+
+        .session-tier-btns {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: center;
+            max-width: 720px;
+            margin: 0 auto 10px;
+        }
+
+        .session-tier-btn {
+            padding: 10px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: 900;
+            cursor: pointer;
+            letter-spacing: -0.02em;
+            min-width: 60px;
+            transition: transform 0.1s, filter 0.15s;
+        }
+
+        .session-tier-btn:hover { transform: scale(1.08); filter: brightness(1.1); }
+        .session-tier-btn:active { transform: scale(0.96); }
+
+        .session-actions {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 24px;
+        }
     </style>
 </head>
 <body>
@@ -516,6 +642,14 @@
             <button class="btn primary" id="load-btn" onclick="loadPlaylist()">Load</button>
             <button class="btn" onclick="openSettings()">⚙ Tiers</button>
             <button class="btn" id="export-btn" onclick="exportImage()">Export PNG</button>
+            <div class="mode-toggle">
+                <span class="mode-label active" id="label-free">Free</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="mode-switch" onchange="toggleMode(this.checked)">
+                    <span class="toggle-knob"></span>
+                </label>
+                <span class="mode-label" id="label-session">Session</span>
+            </div>
             <div class="vol-group">
                 <span class="vol-icon" id="vol-icon" onclick="togglePreviewMute()">🔉</span>
                 <input type="range" id="vol-slider" min="0" max="100" value="30" oninput="setPreviewVolume(this.value)" />
@@ -530,6 +664,21 @@
         <div id="pool-section">
             <div class="pool-header">Unranked</div>
             <div id="pool"></div>
+        </div>
+
+        <div id="session-view" style="display:none">
+            <div class="session-player-wrap">
+                <iframe id="session-iframe"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowfullscreen></iframe>
+            </div>
+            <div class="session-title" id="session-title"></div>
+            <div class="session-counter" id="session-counter"></div>
+            <div class="session-tier-btns" id="session-tier-btns"></div>
+            <div class="session-actions">
+                <button class="btn" id="skip-btn" onclick="skipSessionVideo()">Skip →</button>
+                <button class="btn" onclick="exitSessionMode()">Exit Session</button>
+            </div>
         </div>
     </div>
 
@@ -582,6 +731,12 @@
         let ytPlayer = null;
         const sortables = new Map();
         let justDragged = false;
+
+        let appMode = 'free';
+        let sessionQueue = [];
+        let sessionCurrentVideo = null;
+        let sessionTotal = 0;
+        let sessionTiered = 0;
 
         // ── YouTube IFrame API ──
         (function () {
@@ -869,6 +1024,7 @@
             renderTierlist();
             restoreState(state);
             renderSettings();
+            renderSessionTierBtns();
         }
 
         function removeTier(id) {
@@ -878,6 +1034,7 @@
             tiers = tiers.filter(t => t.id !== id);
             document.querySelector(`.tier-row[data-tier-id="${id}"]`)?.remove();
             renderSettings();
+            renderSessionTierBtns();
         }
 
         function moveTier(id, dir) {
@@ -889,6 +1046,7 @@
             renderTierlist();
             restoreState(state);
             renderSettings();
+            renderSessionTierBtns();
         }
 
         function updateColor(id, color) {
@@ -1021,6 +1179,117 @@
             const el = document.getElementById('status');
             el.textContent = msg;
             el.className = 'status' + (isError ? ' error' : '');
+        }
+
+        // ── Session Mode ──────────────────────────────────────────────────────────
+
+        function toggleMode(isSession) {
+            document.getElementById('label-free').classList.toggle('active', !isSession);
+            document.getElementById('label-session').classList.toggle('active', isSession);
+            if (isSession) enterSessionMode();
+            else exitSessionMode();
+        }
+
+        function enterSessionMode() {
+            if (!videos.length) {
+                setStatus('Load a playlist first', true);
+                document.getElementById('mode-switch').checked = false;
+                document.getElementById('label-free').classList.add('active');
+                document.getElementById('label-session').classList.remove('active');
+                return;
+            }
+            appMode = 'session';
+            // Collect untiered pool videos and shuffle them
+            const pool = document.getElementById('pool');
+            sessionQueue = [...pool.querySelectorAll('.card')]
+                .map(c => videos.find(v => v.videoId === c.dataset.videoId))
+                .filter(Boolean);
+            for (let i = sessionQueue.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [sessionQueue[i], sessionQueue[j]] = [sessionQueue[j], sessionQueue[i]];
+            }
+            sessionTotal = sessionQueue.length;
+            sessionTiered = 0;
+            sessionCurrentVideo = null;
+            pool.innerHTML = '';
+            document.getElementById('pool-section').style.display = 'none';
+            document.getElementById('session-view').style.display = 'block';
+            renderSessionTierBtns();
+            if (sessionTotal === 0) showSessionDone();
+            else loadSessionVideo();
+        }
+
+        function exitSessionMode() {
+            appMode = 'free';
+            document.getElementById('mode-switch').checked = false;
+            document.getElementById('label-free').classList.add('active');
+            document.getElementById('label-session').classList.remove('active');
+            document.getElementById('session-iframe').src = '';
+            // Return untiered videos to pool
+            const pool = document.getElementById('pool');
+            if (sessionCurrentVideo) sessionQueue.unshift(sessionCurrentVideo);
+            sessionCurrentVideo = null;
+            sessionQueue.forEach(v => pool.appendChild(createCard(v)));
+            sessionQueue = [];
+            document.getElementById('session-view').style.display = 'none';
+            if (pool.children.length > 0) document.getElementById('pool-section').style.display = 'block';
+        }
+
+        function renderSessionTierBtns() {
+            if (appMode !== 'session') return;
+            const container = document.getElementById('session-tier-btns');
+            container.innerHTML = '';
+            tiers.forEach(tier => {
+                const btn = document.createElement('button');
+                btn.className = 'session-tier-btn';
+                btn.textContent = tier.name;
+                btn.style.background = tier.color;
+                btn.style.color = contrastColor(tier.color);
+                btn.onclick = () => assignToTier(tier.id);
+                container.appendChild(btn);
+            });
+        }
+
+        function loadSessionVideo() {
+            if (!sessionQueue.length) { showSessionDone(); return; }
+            sessionCurrentVideo = sessionQueue.shift();
+            const startSec = Math.floor(getPreviewStart(sessionCurrentVideo.duration));
+            document.getElementById('session-title').textContent = sessionCurrentVideo.title;
+            updateSessionCounter();
+            document.getElementById('session-iframe').src =
+                `https://www.youtube.com/embed/${sessionCurrentVideo.videoId}?autoplay=1&start=${startSec}&rel=0`;
+            try { ytPlayer?.pauseVideo?.(); } catch {}
+            document.getElementById('session-tier-btns').style.display = 'flex';
+            document.getElementById('skip-btn').style.display = '';
+        }
+
+        function assignToTier(tierId) {
+            if (!sessionCurrentVideo) return;
+            const zone = document.querySelector(`.tier-zone[data-tier-id="${tierId}"]`);
+            if (zone) zone.appendChild(createCard(sessionCurrentVideo));
+            sessionTiered++;
+            sessionCurrentVideo = null;
+            loadSessionVideo();
+        }
+
+        function skipSessionVideo() {
+            if (!sessionCurrentVideo) return;
+            sessionQueue.push(sessionCurrentVideo);
+            sessionCurrentVideo = null;
+            loadSessionVideo();
+        }
+
+        function updateSessionCounter() {
+            document.getElementById('session-counter').textContent =
+                `${sessionTiered} of ${sessionTotal} tiered`;
+        }
+
+        function showSessionDone() {
+            document.getElementById('session-iframe').src = '';
+            document.getElementById('session-title').textContent = `All ${sessionTotal} songs tiered!`;
+            document.getElementById('session-counter').textContent = '';
+            document.getElementById('session-tier-btns').style.display = 'none';
+            document.getElementById('skip-btn').style.display = 'none';
         }
 
         // ── Init ──
